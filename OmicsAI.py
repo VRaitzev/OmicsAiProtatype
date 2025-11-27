@@ -107,13 +107,11 @@ H = nmf_model.components_
 
 gene_names = full_df.drop(columns=clin_df.columns).columns.tolist()
 
-top_k = 20  # сколько генов взять в топ
+top_k = 20  
 components_dict = {}
 
 for i, comp in enumerate(H):
-    # Сортировка по убыванию вкладов
     top_genes_idx = np.argsort(comp)[::-1][:top_k]
-    # Формируем пары (ген, вклад)
     comp_max = np.max(comp[top_genes_idx])
     top_genes_with_values = [(gene_names[j], float(comp[j]/comp_max)) for j in top_genes_idx]
     components_dict[f"Component_{i+1}"] = top_genes_with_values
@@ -122,7 +120,6 @@ for i, comp in enumerate(H):
 scaler = StandardScaler()
 X_deep = scaler.fit_transform(W)
 
-# train/test split
 X_train, X_test, y_time_train, y_time_test, y_event_train, y_event_test = train_test_split(
     X_deep, y_time.numpy(), y_event.numpy(), test_size=0.2, random_state=SEED
 )
@@ -173,19 +170,18 @@ for epoch in range(1, n_epochs+1):
         Xb, tb, eb = Xb.to(device), tb.to(device), eb.to(device)
         optimizer.zero_grad()
         out = net(Xb).squeeze()
-        loss = loss_fn(out, tb, eb)            # <--- исправлено
+        loss = loss_fn(out, tb, eb)            
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=3.0)  # gradient clipping
+        torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=3.0)  
         optimizer.step()
         epoch_loss += loss.item()
         n_batches += 1
     epoch_loss /= max(1,n_batches)
 
-    # Валидация
     net.eval()
     with torch.no_grad():
         out_test = net(X_test_tensor).squeeze()
-        val_loss = loss_fn(out_test, t_test, e_test).item()   # <--- исправлено
+        val_loss = loss_fn(out_test, t_test, e_test).item()   
         preds_np = out_test.cpu().numpy()
         y_time_np = t_test.cpu().numpy()
         y_event_np = e_test.cpu().numpy().astype(bool)
@@ -222,8 +218,7 @@ explainer = shap.Explainer(model_predict, X_train.numpy())
 
 shap_values = explainer(X_test.numpy())
 
-# Получаем массив SHAP-значений для нормализации
-shap_values_array = shap_values.values  # shape = (num_patients, N_COMPONENETS)
+shap_values_array = shap_values.values 
 max_abs = np.max(np.abs(shap_values_array))
 shap_normalized = shap_values_array / max_abs
 
@@ -231,21 +226,19 @@ shap_normalized = shap_values_array / max_abs
 all_genes = [gene_name for comp in components_dict.values() for gene_name, _ in comp]
 gene_annotations = mg.querymany(all_genes, scopes="symbol", fields="name,summary", species="human")
 
-# Словарь gene_name -> summary
 gene_desc_dict = {item['query']: item.get('summary', "") for item in gene_annotations if not item.get('notfound', False)}
 
 # ----------------- Нормализация risk -----------------
-# Пусть риски будут от 0 до 1 для фронта
 risk_min = final_out.min()
 risk_max = final_out.max()
 final_out_norm = (final_out - risk_min) / (risk_max - risk_min)
 
 # ----------------- Создание JSON для каждого пациента -----------------
-shap_values_array = shap_values.values  # shape = (num_patients, N_COMPONENETS)
+shap_values_array = shap_values.values  
 
 for idx in range(X_test.shape[0]):
     patient_id = f"Patient_{idx+1}"
-    patient_risk = float(final_out_norm[idx])  # нормализованный риск
+    patient_risk = float(final_out_norm[idx]) 
 
     patient_dict = {
         "patient_id": patient_id,
@@ -255,7 +248,7 @@ for idx in range(X_test.shape[0]):
 
     for comp_idx in range(N_COMPONENETS):
         comp_name = f"Component_{comp_idx+1}"
-        comp_value = float(shap_values_array[idx, comp_idx])  # вклад компоненты для пациента
+        comp_value = float(shap_values_array[idx, comp_idx]) 
 
         genes_list = []
         for gene_name, contribution in components_dict[comp_name]:
@@ -272,6 +265,5 @@ for idx in range(X_test.shape[0]):
             "genes": genes_list
         })
 
-    # Сохраняем JSON для каждого пациента отдельно
     with open(f"{patient_id}.json", "w") as f:
         json.dump(patient_dict, f, indent=4)
